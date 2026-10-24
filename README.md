@@ -78,3 +78,14 @@ types/
 next.config.ts
 package.json
 ```
+
+---
+
+## Original repository README (preserved)
+
+The pre-existing README text is reproduced verbatim below.
+
+```text
+# meh-ai-prompt-digital-library
+AI prompt digital library 
+```
