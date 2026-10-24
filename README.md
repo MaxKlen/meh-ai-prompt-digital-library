@@ -10,6 +10,20 @@ MEH AI prompt digital library is a personal, local-first finder for reusable AI 
 
 The app loads only same-site static JSON files. Search uses local string matching. Recent prompt IDs are optional browser `localStorage` data on this device only. There is no account, external API, analytics service, AI inference, or external database.
 
+## Search on a phone
+
+Type a task such as **email**, **research**, or **image**. Home shows a live match count and six preview cards. Tap the visible **Search** button or the keyboard's **Search / Enter** key to open the matching Browse results, dismiss the keyboard, and bring the search controls and results into view. Browse retains live filtering, topic/source/format selectors, a clear empty state, and 60-record pagination. Search uses one reusable, normalized local index rather than scanning and normalizing the entire library twice per keystroke.
+
+## Install and use offline
+
+Open the HTTPS app address in a regular, non-private browser while online. Tap **Save offline** and keep the page open until it says **Ready offline**. This one-time download saves the complete app and all 16,165 prompts on that device (about 35 MB plus app assets), not just the visible results. Readiness is shown only after the service worker verifies every required cached file.
+
+On **iPhone or iPad**, open the app in Safari, use **Share → Add to Home Screen → Add**. On **Android**, use Chrome's **Install app** option or its menu's **Install app / Add to Home screen**. The in-app Install button uses the browser's native prompt when available and otherwise shows these instructions. An embedded chat browser may not offer installation.
+
+Open the installed home-screen app once while online and confirm **Ready offline**; if that browser context needs its own saved copy, tap Save offline there too. After that, Home, Browse, search, filters, prompt details, on-device recents, and Copy text work without a connection, including after closing and reopening the page. External attribution/source websites still need internet access.
+
+The cache is tied to the exact site address and browser/device. Clearing site data, private browsing, or OS/browser storage cleanup can remove it. The app requests persistent storage where supported, but the device remains in control; check the Ready offline status before travelling without connectivity. An interrupted cache update keeps the prior complete copy. Browser-based testing can verify offline behavior but cannot guarantee every physical iOS/Android installation flow. Installation and storage behavior follow the browser's [PWA installation](https://web.dev/learn/pwa/installation) and [offline storage](https://web.dev/learn/pwa/offline-data) capabilities.
+
 ## Included datasets and license terms
 
 | Dataset | Records included | Data license | Coverage and notes |
@@ -50,10 +64,20 @@ Open [http://localhost:3000](http://localhost:3000). To type-check and create th
 
 ```bash
 npm run typecheck
+npm run test:search
 npm run build
 ```
 
-Static files are produced in `out/` and can be served from any static host. The Next.js build is configured for static export.
+Static files are produced in `out/` and can be served from any static HTTPS host (or localhost for testing). The Next.js build is configured for static export. The build then derives a content-versioned precache list from the complete export and generates `out/sw.js`; it includes all app assets, the JSON manifest, and all data shards. Offline saving is intentionally a production-build feature, not Next.js development-server caching.
+
+For the optional mobile and offline integration test, install Python's `playwright` package and provide a Chromium executable. Serve `out/`, then run:
+
+```bash
+python3 -m http.server 3000 --bind 0.0.0.0 --directory out
+python3 scripts/test-search-ui.py --url http://localhost:3000
+```
+
+Set `CHROMIUM_PATH` if Chromium is not at `/usr/bin/chromium`. The test covers live typing, touch Search, keyboard Enter, filters, pagination, empty states, inert prompt view/copy, recents, cache completeness, and a cold-tab offline launch with HTTP caching disabled. It uses iPhone-sized and Android-sized Chromium touch viewports, not a physical-device or native-install test. Screenshots are written to the ignored `screenshots/` directory.
 
 ## Project structure
 
@@ -64,15 +88,22 @@ app/
   page.tsx
 components/
   PromptFinder.tsx
+  OfflineControls.tsx
 lib/
   search.ts
 public/
   favicon.svg
+  manifest.webmanifest
+  icons/
   data/
     library.json
     prompts-<source>-<part>.json
 scripts/
   build-library.py
+  build-pwa.mjs
+  service-worker-template.js
+  test-search.cjs
+  test-search-ui.py
 types/
   prompt.ts
 next.config.ts

@@ -49,9 +49,33 @@ function cappedOccurrences(text: string, term: string, cap = 4): number {
   return count;
 }
 
+type IndexedPrompt = {
+  prompt: PromptRecord;
+  title: string;
+  category: string;
+  tags: string;
+  description: string;
+  metadata: string;
+  content: string;
+};
+
+export type PromptSearchIndex = ReadonlyArray<IndexedPrompt>;
 type ScoredPrompt = { prompt: PromptRecord; score: number };
 
-export function searchPrompts(query: string, prompts: PromptRecord[], limit = 50): ScoredPrompt[] {
+// Build once per loaded library, not twice per keystroke. These are plain strings only.
+export function createPromptSearchIndex(prompts: PromptRecord[]): PromptSearchIndex {
+  return prompts.map((prompt) => ({
+    prompt,
+    title: prompt.title.toLocaleLowerCase(),
+    category: prompt.category.toLocaleLowerCase(),
+    tags: prompt.tags.join(" ").toLocaleLowerCase(),
+    description: prompt.description.toLocaleLowerCase(),
+    metadata: `${prompt.framework} ${prompt.difficulty} ${prompt.intent} ${prompt.modality} ${prompt.language ?? ""}`.toLocaleLowerCase(),
+    content: prompt.content.toLocaleLowerCase(),
+  }));
+}
+
+export function searchPrompts(query: string, index: PromptSearchIndex, limit = 50): ScoredPrompt[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const queryTokens = [...new Set(tokenize(normalizedQuery))];
   if (!normalizedQuery || queryTokens.length === 0) return [];
@@ -66,13 +90,7 @@ export function searchPrompts(query: string, prompts: PromptRecord[], limit = 50
     }
   }
 
-  const scored: ScoredPrompt[] = prompts.map((prompt) => {
-    const title = prompt.title.toLocaleLowerCase();
-    const category = prompt.category.toLocaleLowerCase();
-    const tags = prompt.tags.join(" ").toLocaleLowerCase();
-    const description = prompt.description.toLocaleLowerCase();
-    const metadata = `${prompt.framework} ${prompt.difficulty} ${prompt.intent} ${prompt.modality} ${prompt.language ?? ""}`.toLocaleLowerCase();
-    const content = prompt.content.toLocaleLowerCase();
+  const scored: ScoredPrompt[] = index.map(({ prompt, title, category, tags, description, metadata, content }) => {
     let score = normalizedQuery.length > 2 && title.includes(normalizedQuery) ? 14 : 0;
 
     for (const [term, weight] of expanded) {

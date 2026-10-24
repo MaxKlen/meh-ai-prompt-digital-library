@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -18,7 +18,8 @@ import {
   Sparkles,
   Video,
 } from "lucide-react";
-import { searchPrompts } from "@/lib/search";
+import { createPromptSearchIndex, searchPrompts } from "@/lib/search";
+import OfflineControls from "@/components/OfflineControls";
 import type { PromptCategory, PromptLibrary, PromptLibraryManifest, PromptModality, PromptRecord, PromptSourceInfo } from "@/types/prompt";
 
 type Screen = "home" | "browse" | "prompt";
@@ -45,26 +46,42 @@ function SourceName({ sourceId, sources }: { sourceId: string; sources: PromptSo
 function SearchField({
   value,
   onChange,
+  onSubmit,
   placeholder,
   label,
 }: {
   value: string;
   onChange: (value: string) => void;
+  onSubmit: () => void;
   placeholder: string;
   label: string;
 }) {
   return (
-    <label className="search-box flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-ink shadow-sm sm:px-5 sm:py-3.5">
-      <Search size={18} className="shrink-0 text-[#718078]" />
-      <input
-        className="w-full bg-transparent text-[14px] outline-none placeholder:text-[#99a39d] sm:text-[15px]"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        aria-label={label}
-      />
-      <kbd className="hidden shrink-0 rounded-md border border-line bg-[#f8faf7] px-2 py-1 text-[10px] text-[#8d9991] sm:block">LOCAL</kbd>
-    </label>
+    <form
+      role="search"
+      aria-label={label}
+      className="flex min-w-0 items-stretch gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        event.currentTarget.querySelector("input")?.blur();
+        onSubmit();
+      }}
+    >
+      <label className="search-box flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-line bg-white px-3 py-3 text-ink shadow-sm sm:gap-3 sm:px-5">
+        <Search size={18} className="shrink-0 text-[#718078]" aria-hidden="true" />
+        <input
+          type="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          className="min-w-0 w-full bg-transparent text-[16px] outline-none placeholder:text-[#99a39d]"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          aria-label={label}
+        />
+      </label>
+      <button type="submit" className="search-submit">Search</button>
+    </form>
   );
 }
 
@@ -86,7 +103,7 @@ function PromptCard({
   const snippet = prompt.description || prompt.content.replace(/\s+/g, " ").trim();
   const source = sources.find((item) => item.id === prompt.source.sourceId);
   return (
-    <button className="prompt-card group" onClick={() => onOpen(prompt.id)}>
+    <button className="prompt-card group" data-prompt-id={prompt.id} data-modality={prompt.modality} onClick={() => onOpen(prompt.id)}>
       <div className="flex items-start justify-between gap-5">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -122,6 +139,11 @@ export default function PromptFinder() {
   const [loadError, setLoadError] = useState(false);
   const [screen, setScreen] = useState<Screen>("home");
   const [query, setQuery] = useState("");
+  const searchQuery = useDeferredValue(query);
+  const isSearching = query !== searchQuery;
+  const [searchRequested, setSearchRequested] = useState(false);
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -164,16 +186,29 @@ export default function PromptFinder() {
   }, [prompts]);
   const topCategories = useMemo(() => [...categories].sort((a, b) => (categoryCounts.get(b.id) ?? 0) - (categoryCounts.get(a.id) ?? 0)).slice(0, 6), [categories, categoryCounts]);
   const recentPrompts = recentIds.map((id) => prompts.find((prompt) => prompt.id === id)).filter((prompt): prompt is PromptRecord => Boolean(prompt));
-  const homeResults = useMemo(() => searchPrompts(query, prompts, 6).map((item) => item.prompt), [query, prompts]);
+  const searchIndex = useMemo(() => createPromptSearchIndex(prompts), [prompts]);
+  // Share one ranked result set between Home's preview and Browse; never rescan the hidden screen.
+  const searchResults = useMemo(() => searchPrompts(searchQuery, searchIndex, prompts.length).map((item) => item.prompt), [searchQuery, searchIndex, prompts.length]);
+  const homeResults = searchResults.slice(0, 6);
   const browseResults = useMemo(() => {
-    const matching = query.trim() ? searchPrompts(query, prompts, prompts.length).map((item) => item.prompt) : prompts;
+    const matching = searchQuery.trim() ? searchResults : prompts;
     return matching.filter((prompt) => {
       const categoryMatches = !selectedCategoryId || prompt.categoryId === selectedCategoryId;
       const sourceMatches = selectedSourceId === "ALL" || prompt.source.sourceId === selectedSourceId;
       const modalityMatches = selectedModality === "ALL" || prompt.modality === selectedModality;
       return categoryMatches && sourceMatches && modalityMatches;
     });
-  }, [query, prompts, selectedCategoryId, selectedSourceId, selectedModality]);
+  }, [searchQuery, searchResults, prompts, selectedCategoryId, selectedSourceId, selectedModality]);
+
+  useEffect(() => {
+    if (!searchRequested || screen !== "browse" || isSearching) return;
+    const frame = window.requestAnimationFrame(() => {
+      resultsHeadingRef.current?.focus({ preventScroll: true });
+      searchPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setSearchRequested(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchRequested, screen, isSearching, searchQuery]);
 
   useEffect(() => {
     if (!library) return;
@@ -194,6 +229,18 @@ export default function PromptFinder() {
     } catch {
       // The library remains fully usable when browser storage is unavailable.
     }
+  }
+
+  function submitSearch() {
+    setQuery(query.trim());
+    setVisibleCount(PAGE_SIZE);
+    if (screen === "home") {
+      setSelectedCategoryId(null);
+      setSelectedSourceId("ALL");
+      setSelectedModality("ALL");
+      setScreen("browse");
+    }
+    setSearchRequested(true);
   }
 
   function openPrompt(id: string) {
@@ -254,6 +301,7 @@ export default function PromptFinder() {
       </header>
 
       <main className="mx-auto max-w-[1160px] px-5 pb-16 pt-8 sm:px-8 sm:pt-11 lg:px-10">
+        <OfflineControls />
         {isLoading && <div className="empty-card">Loading the local prompt library…</div>}
         {loadError && (
           <div className="empty-card">
@@ -277,8 +325,11 @@ export default function PromptFinder() {
                 <p className="mt-4 max-w-[560px] text-[14px] leading-6 text-white/70 sm:text-[15px]">
                   Search reusable templates across writing, research, coding, image and video tasks. Browse once, then adapt them to your AI platform.
                 </p>
-                <SearchField value={query} onChange={setQuery} placeholder="Try “research summary”, “email”, or “image”…" label="Search local prompts" />
-                <p className="mt-3 text-[11px] text-white/55">Search uses the local JSON library in your browser. No sign-in, AI service, analytics or external database.</p>
+                <div className="mt-5"><SearchField value={query} onChange={setQuery} onSubmit={submitSearch} placeholder="Try “email” or “image”…" label="Search local prompts" /></div>
+                <p role="status" aria-live="polite" className="mt-3 text-[12px] text-white/85">
+                  {query.trim() ? (isSearching ? "Finding local matches…" : `${searchResults.length.toLocaleString()} ${searchResults.length === 1 ? "match" : "matches"}. Tap Search to view results.`) : "Type a task, then tap Search or press Enter."}
+                </p>
+                <p className="mt-2 text-[11px] text-white/55">Search uses the local JSON library in your browser. No sign-in, AI service, analytics or external database.</p>
               </div>
             </section>
 
@@ -290,14 +341,14 @@ export default function PromptFinder() {
             </div>
 
             <section className="mt-8">
-              {query.trim() ? (
+              {searchQuery.trim() ? (
                 <>
                   <div className="mb-4 flex items-end justify-between gap-4">
                     <div>
                       <p className="eyebrow">LOCAL SEARCH</p>
-                      <h2 className="section-heading mt-1">{homeResults.length ? `Top matches for “${query}”` : "No close matches"}</h2>
+                      <h2 className="section-heading mt-1">{homeResults.length ? `Top matches for “${searchQuery}”` : "No close matches"}</h2>
                     </div>
-                    <button className="text-button" onClick={() => goBrowse()}>Browse all results <ArrowUpRight size={14} /></button>
+                    <button className="text-button" onClick={submitSearch}>Browse all results <ArrowUpRight size={14} /></button>
                   </div>
                   {homeResults.length ? (
                     <div className="space-y-3">{homeResults.map((prompt) => <PromptCard key={prompt.id} prompt={prompt} sources={sources} onOpen={openPrompt} />)}</div>
@@ -384,8 +435,8 @@ export default function PromptFinder() {
               <span className="mb-1 rounded-full border border-line bg-white px-3 py-1.5 text-[11px] text-muted">Local JSON · no external database</span>
             </div>
 
-            <div className="rounded-2xl border border-line bg-white p-3 sm:p-4">
-              <SearchField value={query} onChange={(value) => { setQuery(value); setVisibleCount(PAGE_SIZE); }} placeholder="Search titles, topics, tags, or prompt text…" label="Search prompts in Browse" />
+            <div ref={searchPanelRef} className="scroll-mt-5 rounded-2xl border border-line bg-white p-3 sm:p-4">
+              <SearchField value={query} onChange={(value) => { setQuery(value); setVisibleCount(PAGE_SIZE); }} onSubmit={submitSearch} placeholder="Search titles, topics, tags, or prompt text…" label="Search prompts in Browse" />
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <label className="filter-label">Topic
                   <select className="filter-select" value={selectedCategoryId ?? "ALL"} onChange={(event) => { setSelectedCategoryId(event.target.value === "ALL" ? null : event.target.value); setVisibleCount(PAGE_SIZE); }}>
@@ -408,8 +459,8 @@ export default function PromptFinder() {
               </div>
             </div>
 
-            <div className="mb-3 mt-6 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-[13px] font-semibold text-ink">{browseResults.length.toLocaleString()} matching {browseResults.length === 1 ? "record" : "records"}</h2>
+            <div aria-live="polite" aria-atomic="true" className="mb-3 mt-6 flex flex-wrap items-center justify-between gap-2">
+              <h2 ref={resultsHeadingRef} tabIndex={-1} className="text-[13px] font-semibold text-ink">{isSearching ? "Searching local prompts…" : `${browseResults.length.toLocaleString()} matching ${browseResults.length === 1 ? "record" : "records"}${searchQuery.trim() ? ` for “${searchQuery}”` : ""}`}</h2>
               <span className="text-[10px] text-muted">Showing {Math.min(visibleCount, browseResults.length).toLocaleString()} of {browseResults.length.toLocaleString()}</span>
             </div>
             {browseResults.length ? (
