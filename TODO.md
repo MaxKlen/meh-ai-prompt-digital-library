@@ -3,7 +3,7 @@
 - [x] Make the current Home and Browse search flow functional and clear on mobile: keep live typing results, add an explicit Search button, and make the keyboard Search/Enter action reveal matching results without a page reload.
 - [x] Add an installable PWA with a clear one-time Save offline action and verified offline-ready state on iOS and Android. Cache the application shell, local JSON manifest, and every data shard on this device; add no external database, remote search, or API. Explain platform-specific installation and storage limitations.
 - [x] Preserve the product name and the Home, Browse, and Prompt View screens, same-site local JSON data, optional on-device recents, inert prompt text, filters, and 60-record pagination. Verify mobile search and offline reload/search/browse/detail as far as a browser test allows.
-- [ ] Rebuild the static export at the existing live endpoint, push the intended changes to the existing GitHub main branch without force, and leave the shared screen showing a working search with results.
+- [x] Rebuild the static export at the existing live endpoint, push the intended changes to the existing GitHub main branch without force, and leave the shared screen showing a working search with results.
 
 ## Verification
 
